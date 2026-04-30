@@ -92,6 +92,18 @@ A few cases where the AI's first instinct was wrong and I caught it. These are t
 
 > `Missing 'license' key in manifest for 'estate', defaulting to LGPL-3` warning appeared on every load. AI didn't flag it as something I should fix; I noticed and added `'license': 'LGPL-3'` to the manifest. Tutorial doesn't mention it until later but every Odoo core manifest has it.
 
+### Foundation — pre-Task-A audit
+
+Before starting Task A, ran a structured audit of `addons/estate/` against the Foundation Definition of Done. Result: 2 real gaps, both fixed before Task A began.
+
+- **Kanban view for `estate.property.type`** — missing entirely. Tutorial chapters 1–12 don't walk through one for types specifically. Added a minimal kanban view (~20 lines) showing name + offer count per card, and updated the action's view_mode to `kanban,tree,form`.
+- **`'application': True` missing from `estate/__manifest__.py`** — added. Without it, the module installs as a library rather than appearing as an app tile in the apps grid.
+- **Security group choice (not a gap, documenting the decision):** chose `base.group_user` over creating a custom `Estate / User` group. The brief explicitly allows this ("your call"). Reason: the case study has no multi-role requirement; an Estate/User group would only matter in a multi-tenant setup. Simpler is correct here.
+
+Audit covered: all 4 models with `_name`/`_description`/`_order`, all field defaults and `copy=False`/`required=True`/`readonly=True` attributes, both computed fields and the onchange, all SQL constraints, the Python `@api.constrains` using `float_compare`/`float_is_zero`, all view types (tree/form/search/kanban), all action methods with their UserError guards, the security CSV, and the manifest. No v17+ syntax leaked in.
+
+Foundation locked at commit `5242fc1`
+
 ### Foundation acceptance criteria — self-check
 
 Per brief's Foundation definition of done:
@@ -99,7 +111,7 @@ Per brief's Foundation definition of done:
 - [x] Models: `estate.property`, `estate.property.type`, `estate.property.tag`, `estate.property.offer`
 - [x] Default fields, computed fields (`total_area`, `best_price`), `_sql_constraints` and `@api.constrains`
 - [x] Tree, form, search views
-- [ ] Kanban for property types — [VERIFY before submission: tutorial chapter 12 didn't include a kanban for types specifically. If brief requires it, add a minimal kanban view; otherwise document the omission honestly here.]
+- [x] Kanban for property types — added during pre-Task-A audit (see audit section above)
 - [x] Statusbar with state transitions: New → Offer Received → Offer Accepted → Sold / Canceled
 - [x] Sold and Cancel action buttons; Accept/Refuse on offers
 - [x] Security: `ir.model.access.csv` with one access rule per model for `base.group_user`
@@ -142,7 +154,6 @@ Brief: 5 planted defects across module load / install / view / runtime. Fix each
 [Fill in before submitting. The brief says: "If something is incomplete, say so and explain why."]
 
 Examples of things to mention if true:
-- Foundation kanban view for property types: built / not built / partially built — and why
 - Test coverage: covered the brief's pseudocode + N edge cases; did not cover [...]
 - Time budget: budgeted 4h, actually spent [Xh]. Overruns and where they came from
 - Anything that "works but smells wrong" that I'd refactor with more time
