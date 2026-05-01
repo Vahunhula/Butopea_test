@@ -3,7 +3,7 @@
 ## Submission summary
 
 - **Foundation (`estate/`):** complete. Built by following Odoo 16 official tutorial chapters 1–12, stopping before "Inheritance" per brief.
-- **Task A (`estate_account/`):** [TODO — fill in once done]
+- **Task A (`estate_account/`):** complete. 5 tests passing; uninstall safety verified.
 - **Task B (`course_catalog/`):** [TODO — fill in once done]
 - **Total time spent:** [TODO — track actual hours, be honest if over 4]
 
@@ -118,20 +118,74 @@ Per brief's Foundation definition of done:
 
 ---
 
-## Task A — `estate_account/` (TODO)
+## Task A — `estate_account/`
 
-[Fill in once Task A is complete. Sections to cover:]
+**Status: complete.** All 5 tests pass; uninstall safety verified.
 
-- **Architecture:** model inheritance pattern (`_inherit = "estate.property"` to override `action_sold` and add invoice-related fields; `_inherit = "account.move"` to add `property_id` link).
-- **Override of `action_sold`:** draft invoice creation happens *before* `super().action_sold()` call so failures rollback cleanly. Decision rationale.
-- **Multi-company resolution:** `with_company(property.company_id)` to set the active company so `account.move` defaults pick the right journal and income account. Confirms compliance with brief's multi-company constraint.
-- **No hard-coded account codes:** `account.move` line `account_id` resolved by Odoo's defaults, not specified explicitly. Compliance with brief.
-- **Idempotency choice:** raise `UserError` if property already sold (vs no-op). Reason: explicit failure is testable; silent no-op masks caller bugs.
-- **Smart button implementation:** view inheritance into `oe_button_box`, `action_view_invoices` returning `ir.actions.act_window` dict with domain filtering.
-- **Tests:** `TransactionCase` covering the brief's acceptance pseudocode plus edge cases (no `buyer_id` raises, calling `action_sold` twice raises).
-- **Notable AI corrections during Task A:** [list as they come up]
+### Architecture
+
+Bridge module pattern. `estate_account` depends on both `estate` (the Foundation module) and `account` (Odoo built-in). `estate` itself has no dependency on `account` — confirmed by uninstalling `estate_account` and verifying Real Estate still works.
+
+Two model inheritances:
+
+- `_inherit = "estate.property"` — adds `company_id`, `invoice_ids` (One2many), `invoice_count` (computed), overrides `action_sold`, defines `action_view_invoices` for the smart button.
+- `_inherit = "account.move"` — adds `property_id` Many2one back-link. This is the "missing piece" that makes the One2many work and lets the action's domain filter find the right invoices.
+
+One view file inheriting `estate.estate_property_view_form` to inject the smart button via XPath.
+
+### Override of `action_sold`
+
+Validation gates fire **before** invoice creation, so failures rollback cleanly:
+
+1. Already-sold check (idempotency): raise `UserError`.
+2. No-buyer check: raise `UserError`.
+3. Journal lookup: raise `UserError` if no sales journal exists for the property's company.
+
+Then create the draft `account.move` with `move_type='out_invoice'`. Then `super().action_sold()` to flip state. If invoice creation throws, super never runs — atomic.
+
+### Multi-company resolution
+
+Two pieces:
+- `record.company_id` (NOT `self.env.company`) is the source of truth for journal and account lookups. The user's logged-in company is irrelevant.
+- `self.env["account.move"].with_company(record.company_id).create({...})` sets the active-company context, which is how Odoo's default-resolution logic picks the right income account on each invoice line. **No `account_id` is hard-coded** on lines — Odoo's `account.move.line._compute_account_id` resolves it from the company default.
+
+### Idempotency choice
+
+Chose to **raise UserError** if `action_sold` is called on an already-sold property (vs no-op).
+
+Reason: explicit failure is testable (`test_already_sold_raises` asserts both the raise and that no second invoice was created). Silent no-op would mask real bugs in caller code. Documented decision before writing the override.
+
+### Smart button
+
+XPath: `//sheet/h1` with `position="before"`. Places the `oe_button_box` div inside the sheet, above the property name title — Odoo's standard smart-button placement (matches the convention in `addons/sale/views/sale_order_views.xml` and similar core modules).
+
+Initial attempt used `//sheet` with `position="before"`, which placed the button above the sheet but below the header. That overlapped visually with the statusbar and click events resolved to the wrong action. Fixed by re-anchoring to the h1 inside the sheet.
+
+### Tests (`tests/test_invoice.py`)
+
+5 tests, all passing:
+
+1. `test_invoice_created_on_sold` — brief's acceptance pseudocode: invoice exists, correct partner, correct amount_untaxed (= price * 0.06 + 100), state=draft.
+2. `test_invoice_has_two_lines` — verifies both line names ("Commission", "Administrative fee") and prices.
+3. `test_sold_without_buyer_raises` — brief constraint: action_sold without buyer_id raises UserError.
+4. `test_already_sold_raises` — brief constraint: re-running action_sold raises and does not create a second invoice.
+5. `test_invoice_journal_matches_property_company` — multi-company sanity: invoice journal belongs to property's company and is type='sale'.
+
+Run: `docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d butopea --test-enable --stop-after-init -u estate_account`
+
+### Notable AI corrections during Task A
+
+- **Smart button XPath placement**: AI's first version used `//sheet position="before"`, which placed the button-box outside the sheet — visually overlapped with the statusbar and click events fired the wrong action. Fixed by re-anchoring to `//sheet/h1` with `position="before"`. Verified Odoo core uses the same pattern in `addons/sale/views/sale_order_views.xml`.
+- **`with_company()` context**: AI initially suggested passing `account_id` directly on each invoice line. The brief explicitly forbids hard-coding account codes. Replaced with `with_company(record.company_id)` on the create call so Odoo's `_compute_account_id` resolves the income account from the company's default. Verified by checking `account.move.line._compute_account_id` in Odoo 16 source.
+- **`record.company_id` vs `self.env.company`**: AI defaulted to `self.env.company` for journal lookup and `company_id` on the invoice dict. That's the user's logged-in company, which is wrong for multi-company correctness — the invoice has to belong to the *property's* company regardless of who's logged in. Replaced both references to `record.company_id`. Documented as a CLAUDE.md-anchored guardrail.
+
+### Uninstall safety
+
+Verified via UI uninstall (Apps → Real Estate — Accounting Bridge → ⋮ menu → Uninstall). Confirmed afterward: Real Estate menu still works, properties open and edit correctly, statusbar and action buttons function, no errors in logs. Smart button is gone (correct — the inherited view is gone with the module). Re-installed cleanly via `docker compose exec odoo odoo -c /etc/odoo/odoo.conf -i estate_account -d butopea --stop-after-init` afterward.
 
 ---
+
+Task A locked at commit `4c137a2`.
 
 ## Task B — `course_catalog/` (TODO)
 
