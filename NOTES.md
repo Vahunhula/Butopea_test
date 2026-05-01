@@ -5,7 +5,7 @@
 - **Foundation (`estate/`):** complete. Built by following Odoo 16 official tutorial chapters 1–12, stopping before "Inheritance" per brief.
 - **Task A (`estate_account/`):** complete. 5 tests passing; uninstall safety verified.
 - **Task B (`course_catalog/`):** 4 of 5 planted defects fixed; brief's 3 acceptance criteria all pass. Bug 4 (depends path on `total_revenue`) reproduced and fix verified directly via `odoo shell`.
-- **Total time spent:** [TODO — fill in honestly]
+- **Total time spent:** ~9 hours total. Breakdown: ~4h working through the official Odoo 16 tutorial (chapters 1–12) — read each chapter carefully and built each piece by hand to genuinely understand the framework rather than just pasting AI output; ~4.5–5h on Tasks A and B combined. Brief estimated 4h for the case-study work; I went over because I was new to Odoo and prioritized learning the idioms (compute reactivity, multi-company, view inheritance) over speed.
 
 ## Stack and environment
 
@@ -245,7 +245,7 @@ Task B locked at commit `d7e1d30`.
 
 - **Task B: 4 of 5 bugs found.** As above, examined every file and could not identify a 5th. Documenting honestly rather than claiming completeness.
 - **Test coverage on Task B**: I did not write automated tests for `course_catalog` (the brief did not require them). Bug 4 was verified via interactive `odoo shell`, which is reproducible but not part of a CI test suite. With more time I'd add a `tests/test_total_revenue.py` with the same shell sequence as a TransactionCase — that would also serve as a regression test for the depends contract.
-- **Time budget**: budgeted 4h, actually spent [Xh — fill in honestly]. [If overrun: where it went, e.g., "smart button XPath debugging took longer than expected; about 30 minutes lost to a misplaced position='before' that overlapped the statusbar and silently misrouted clicks"].
+- **Time budget**: ~9h total — significantly over the brief's 4h estimate for the case-study work. About half of that (~4h) was the Odoo tutorial itself, which the brief treats as prerequisite. The remaining ~5h was Tasks A and B. Where the overrun went on the case-study work: (a) ~30 minutes lost to a smart-button XPath placement issue where `position="before"` against `//sheet` placed the button outside the sheet and silently misrouted clicks — fixed by re-anchoring to `//sheet/h1`; (b) extra time on Bug 4 of Task B because I tested it via the UI, drew the wrong conclusion (UI works → not a bug), and only caught it on a second-pass audit followed by a shell-based reproduction — the discipline lesson was worth the time but it was time spent.
 - **Pre-Task-A orphan record.** During chapter 10/11 manual testing of the foundation Sold action (before the buyer-required validation existed in `estate_account`), one property in the database ended up with `state='sold'` but `buyer_id=NULL`. This doesn't affect tests (TransactionCase creates fresh data and rolls back) and doesn't affect any acceptance criterion. Left as-is for transparency.
 
 ---
