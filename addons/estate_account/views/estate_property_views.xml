@@ -1,3 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+    <record id="estate_property_view_form_inherit" model="ir.ui.view">
+        <field name="name">estate.property.form.inherit.estate_account</field>
+        <field name="model">estate.property</field>
+        <field name="inherit_id" ref="estate.estate_property_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/h1" position="before">
+                <div class="oe_button_box" name="button_box">
+                    <button name="action_view_invoices"
+                            type="object"
+                            class="oe_stat_button"
+                            icon="fa-money">
+                        <field name="invoice_count" widget="statinfo" string="Invoices"/>
+                    </button>
+                </div>
+            </xpath>
+        </field>
+    </record>
 </odoo>
