@@ -4,8 +4,8 @@
 
 - **Foundation (`estate/`):** complete. Built by following Odoo 16 official tutorial chapters 1–12, stopping before "Inheritance" per brief.
 - **Task A (`estate_account/`):** complete. 5 tests passing; uninstall safety verified.
-- **Task B (`course_catalog/`):** [TODO — fill in once done]
-- **Total time spent:** [TODO — track actual hours, be honest if over 4]
+- **Task B (`course_catalog/`):** 4 of 5 planted defects fixed; brief's 3 acceptance criteria all pass. Bug 4 (depends path on `total_revenue`) reproduced and fix verified directly via `odoo shell`.
+- **Total time spent:** [TODO — fill in honestly]
 
 ## Stack and environment
 
@@ -102,7 +102,7 @@ Before starting Task A, ran a structured audit of `addons/estate/` against the F
 
 Audit covered: all 4 models with `_name`/`_description`/`_order`, all field defaults and `copy=False`/`required=True`/`readonly=True` attributes, both computed fields and the onchange, all SQL constraints, the Python `@api.constrains` using `float_compare`/`float_is_zero`, all view types (tree/form/search/kanban), all action methods with their UserError guards, the security CSV, and the manifest. No v17+ syntax leaked in.
 
-Foundation locked at commit `5242fc1`
+Foundation locked at commit `5242fc1`.
 
 ### Foundation acceptance criteria — self-check
 
@@ -183,34 +183,70 @@ Run: `docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d butopea --test-ena
 
 Verified via UI uninstall (Apps → Real Estate — Accounting Bridge → ⋮ menu → Uninstall). Confirmed afterward: Real Estate menu still works, properties open and edit correctly, statusbar and action buttons function, no errors in logs. Smart button is gone (correct — the inherited view is gone with the module). Re-installed cleanly via `docker compose exec odoo odoo -c /etc/odoo/odoo.conf -i estate_account -d butopea --stop-after-init` afterward.
 
----
-
 Task A locked at commit `4c137a2`.
 
-## Task B — `course_catalog/` (TODO)
+---
 
-Brief: 5 planted defects across module load / install / view / runtime. Fix each, no new features.
+## Task B — `course_catalog/`
 
-[Fill in once Task B is complete. One line per bug:]
+**Status: 4 of 5 planted defects fixed; brief's 3 acceptance criteria all pass.**
 
-- Bug 1: `<file>:<line>` — <one-sentence cause>
-- Bug 2: ...
-- Bug 3: ...
-- Bug 4: ...
-- Bug 5: ...
+### Bugs found and fixed
 
-[Anything I tried that turned out not to be a bug, briefly, so reviewer sees the diagnostic process.]
+- **Bug 1 — install-blocking.** `security/ir.model.access.csv` line 2: typo `model_course_catlog` (missing "a") in the `model_id:id` column. The model's `_name` is `course.catalog`, so the correct external ID is `model_course_catalog`. Without this fix, install failed with `No matching record found for external id 'model_course_catlog' in field 'Model'`.
+
+- **Bug 2 — module load warning, latent runtime crash.** `models/course.py` line 11: `instructor_id = fields.Many2one("res.user", ...)`. The Odoo model name is `res.users` (plural). Module loaded with a `WARNING ... unknown comodel_name 'res.user'` and any attempt to populate Instructor would have crashed at runtime. Fixed by changing `"res.user"` to `"res.users"`.
+
+- **Bug 3 — view rendering.** `views/course_views.xml` line 14: form view referenced `<field name="instuctor_id"/>` (missing "r"). Tree view (line 41) and search view (line 56) referenced the field correctly — only the form view had the typo. Caused a `ParseError: Field "instuctor_id" does not exist in model "course.catalog"` on install. Worth noting that the tree and search views *had it right*, so this wasn't a global typo — just one specific spot in the form, which I confirmed by comparing all three view definitions before applying the fix.
+
+- **Bug 4 — silent compute staleness.** `models/course.py` line 39: `_compute_total_revenue` declared `@api.depends("enrollment_ids")`. That path watches the recordset (additions/removals) but does not watch the `amount` field on individual enrollments. The correct v16 idiom is `@api.depends("enrollment_ids.amount")` — dot-notation crosses the relation so the field is invalidated when any related enrollment's `amount` changes.
+
+  Reproduced the bug directly via `odoo shell` before fixing:
+
+  ```
+  # With buggy @api.depends("enrollment_ids")
+  enrollment.write({"amount": enrollment.amount + 1000})
+  course.total_revenue        → 450.0   (stale, never recomputed)
+  sum(...mapped("amount"))    → 1450.0  (actual sum)
+  ```
+
+  Verified the fix the same way:
+
+  ```
+  # With corrected @api.depends("enrollment_ids.amount")
+  enrollment.write({"amount": enrollment.amount + 500})
+  course.total_revenue        → 950.0   (fresh)
+  sum(...mapped("amount"))    → 950.0   (actual sum)
+  ```
+
+  The bug is *masked in normal UI flows* because saving the course form triggers a parent `course.write()`, which invalidates the entire course record's cache (including `total_revenue`) regardless of the depends contract. So manual UI testing alone wouldn't catch it. The bug surfaces when an enrollment is updated via a direct API call — for example, from another module, a server action, a test, or any code path that bypasses the parent form-save.
+
+### Bugs not found
+
+The brief states 5 planted defects across module load / install / view rendering / runtime. I found 4 — one per stage as described. After fixing those, I examined every remaining file in the module — `__init__.py`, `__manifest__.py`, `models/__init__.py`, `models/enrollment.py` — and could not identify a 5th defect. Verified: `enrolled_on` default uses the valid `fields.Date.context_today` pattern; `currency_id` related-field cascade is correct; `ondelete="cascade"` on `course_id` is appropriate; no missing `_description`; manifest is well-formed.
+
+The brief itself notes the count "may be approximate," so 4 may be the actual total — or there is a 5th silent bug I'm not familiar enough with v16 internals to spot. Documenting honestly per brief guidance.
+
+### Notable AI moments during Task B
+
+- **Diagnostic strategy: error-driven first, audit second.** First pass: ran `-i course_catalog` repeatedly and let install errors guide me to bugs 1, 2, and 3 — each surfaced as a clear log entry. Second pass: structured audit of all 7 module files looking for silent semantic bugs that wouldn't fail install. This caught bug 4. Tradeoff: error-driven debugging is fast for stage-failure bugs and useless for silent semantic bugs; you need both passes.
+
+- **Pushed past the AI's "you're done."** After fixing bugs 1–3, the AI told me to stop and submit — its argument was that the brief's three acceptance criteria all passed and any further hunting would be padding. That argument was reasonable but incomplete: the brief explicitly stated 5 defects, and was specific about *which behavior* to test (Total Revenue updating on enrollment changes), which is an unusual amount of pointing for a brief that didn't expect candidates to dig into compute reactivity. Asked the AI for a *read-only* audit prompt — explicitly framed as "find without fix, do not modify any files" — to be run as a separate Claude conversation. That audit identified bug 4 in `_compute_total_revenue`.
+
+- **Refused to take the audit's word for it.** The audit's reasoning about `@api.depends("enrollment_ids")` vs `enrollment_ids.amount` was logically sound, but I'd already manually tested editing an enrollment's amount in the UI and seen `total_revenue` update correctly. So the audit's claim contradicted my observation. Two possibilities: either the audit was inferring a bug that didn't actually manifest, or the manual UI test was insufficient. Resolved this by running `odoo shell` and calling `enrollment.write({"amount": ...})` directly — bypassing the parent course form. Stored `total_revenue` stayed at `450.0`, actual sum was `1450.0`. Bug confirmed in the database. Applied the fix, re-ran the same shell sequence, confirmed they matched. Lesson I documented in `CLAUDE.md`: *"the UI works" is not sufficient validation for a depends declaration; you need to test the API path that actually exercises cache invalidation*.
+
+- **Strategy choice — read the code, don't delegate to an autonomous agent.** Considered using Claude Code to autonomously hunt for remaining bugs. Decided against it: the brief explicitly grades AI context discipline, and an autonomous agent finding bugs in my codebase undermines the diagnostic story I can tell about each one. Ran the audit manually, file by file, with a separate Claude conversation as a *read-only auditor* (not a fixer). Worked well — caught bug 4, gave me a story to tell, no risk of touching working code.
+
+Task B locked at commit `d7e1d30`.
 
 ---
 
 ## Known limitations and honesty section
 
-[Fill in before submitting. The brief says: "If something is incomplete, say so and explain why."]
-
-Examples of things to mention if true:
-- Test coverage: covered the brief's pseudocode + N edge cases; did not cover [...]
-- Time budget: budgeted 4h, actually spent [Xh]. Overruns and where they came from
-- Anything that "works but smells wrong" that I'd refactor with more time
+- **Task B: 4 of 5 bugs found.** As above, examined every file and could not identify a 5th. Documenting honestly rather than claiming completeness.
+- **Test coverage on Task B**: I did not write automated tests for `course_catalog` (the brief did not require them). Bug 4 was verified via interactive `odoo shell`, which is reproducible but not part of a CI test suite. With more time I'd add a `tests/test_total_revenue.py` with the same shell sequence as a TransactionCase — that would also serve as a regression test for the depends contract.
+- **Time budget**: budgeted 4h, actually spent [Xh — fill in honestly]. [If overrun: where it went, e.g., "smart button XPath debugging took longer than expected; about 30 minutes lost to a misplaced position='before' that overlapped the statusbar and silently misrouted clicks"].
+- **Pre-Task-A orphan record.** During chapter 10/11 manual testing of the foundation Sold action (before the buyer-required validation existed in `estate_account`), one property in the database ended up with `state='sold'` but `buyer_id=NULL`. This doesn't affect tests (TransactionCase creates fresh data and rolls back) and doesn't affect any acceptance criterion. Left as-is for transparency.
 
 ---
 
